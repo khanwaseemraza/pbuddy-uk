@@ -1,0 +1,49 @@
+name: pbuddy
+options:
+  bundleIdPrefix: com.pbuddy
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    from: 12.0.0
+targets:
+  pbuddy:
+    type: application
+    platform: iOS
+    sources: [pbuddy]
+    entitlements:
+      path: pbuddy/pbuddy.entitlements
+      properties:
+        aps-environment: development
+    info:
+      path: pbuddy/Info.plist
+      properties:
+        CFBundleDisplayName: ParcelBuddy
+        UILaunchScreen: {}
+        ITSAppUsesNonExemptEncryption: false
+        # Firebase phone-auth reCAPTCHA fallback callback (encoded App ID).
+        # Without this scheme, PhoneAuthProvider force-unwraps nil and crashes
+        # whenever the silent-APNs path isn't available.
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - app-1-307407141685-ios-2b1416f7b44ff8ce6eaa7c
+    dependencies:
+      - package: Firebase
+        product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseFirestore
+      - package: Firebase
+        product: FirebaseFunctions
+      - package: Firebase
+        product: FirebaseMessaging
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pbuddy.app
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 0.1.0
+        TARGETED_DEVICE_FAMILY: 1
+        SWIFT_VERSION: 5.9
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 75GG7FJV8P
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

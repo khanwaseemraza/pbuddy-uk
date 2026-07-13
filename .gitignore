@@ -1,0 +1,10 @@
+.DS_Store
+node_modules/
+lib/
+*.log
+.firebase/
+firebase-debug.log
+# Xcode
+ios/**/xcuserdata/
+ios/**/*.xcworkspace/xcuserdata/
+ios/build/

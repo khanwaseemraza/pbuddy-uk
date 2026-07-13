@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track your parcel · ParcelBuddy</title>
+<style>
+  :root { font-family: -apple-system, system-ui, sans-serif; }
+  body { margin: 0; padding: 0; background: #F6F7F9; color: #1d1d1f; }
+  .hero { background: #0E1B2C; color: #fff; padding: 1.5rem 1.25rem; }
+  .hero .brand { font-size: .7rem; letter-spacing: 2px; font-weight: 700; color: rgba(255,255,255,.6); }
+  .hero .route { font-size: 1.6rem; font-weight: 700; font-family: ui-monospace, monospace; margin-top: .4rem; }
+  main { max-width: 26rem; margin: 0 auto; padding: 1.25rem; }
+  .card { background: #fff; border-radius: 16px; padding: 1.1rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .step { display: flex; align-items: center; gap: .7rem; padding: .35rem 0; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: #d5dae0; flex: none; }
+  .step.done .dot { background: #E8590C; }
+  .step.delivered .dot { background: #0A7A4F; }
+  .step .label { color: #8a95a1; }
+  .step.done .label { color: #1d1d1f; font-weight: 600; }
+  .pickup { text-align: center; }
+  .pickup .code { font-size: 2.6rem; font-weight: 700; font-family: ui-monospace, monospace; letter-spacing: .3em; color: #0E1B2C; }
+  .pill { display:inline-block; font-size: .72rem; font-weight: 700; padding: .15rem .6rem; border-radius: 99px; background: #fdeccc; color: #8a5a00; }
+  .eco { color: #0A7A4F; font-weight: 600; font-size: .9rem; }
+  .muted { color: #6b7d73; font-size: .85rem; }
+</style>
+</head>
+<body>
+<div class="hero">
+  <div class="brand">PARCELBUDDY</div>
+  <div class="route" id="route">Tracking…</div>
+</div>
+<main>
+  <div id="content"><div class="card muted">Loading your parcel…</div></div>
+  <p class="muted" style="text-align:center">Parcels that ride journeys already happening.<br>Zero-van delivery.</p>
+</main>
+
+<script>
+  const token = new URLSearchParams(location.search).get("t");
+  const FN = "https://europe-west2-pbuddy-uk.cloudfunctions.net/getTracking";
+  const STEPS = [
+    ["CREATED", "Parcel created"],
+    ["DEPOSITED", "Dropped at origin shop"],
+    ["COLLECTED", "On its way with a traveller"],
+    ["ARRIVED", "Ready for you to collect"],
+    ["DELIVERED", "Collected — all done"],
+  ];
+  const order = STEPS.map((s) => s[0]);
+
+  async function load() {
+    if (!token) { renderError("No tracking link."); return; }
+    try {
+      const res = await fetch(FN, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ data: { token } }) });
+      const { result } = await res.json();
+      if (!result) throw new Error("not found");
+      draw(result);
+    } catch { renderError("We couldn't find that parcel. Check the link and try again."); }
+  }
+
+  function renderError(msg) {
+    document.getElementById("route").textContent = "Parcel";
+    document.getElementById("content").innerHTML = `<div class="card">${msg}</div>`;
+  }
+
+  function draw(r) {
+    const parts = (r.corridorId || "").split("-").map((s) => s.toUpperCase());
+    document.getElementById("route").textContent = parts.length > 1 ? `${parts[0]} → ${parts[1]}` : "Your parcel";
+    const idx = order.indexOf(r.state);
+    let html = "";
+
+    if (r.state === "ARRIVED" && r.pickupCode) {
+      html += `<div class="card pickup">
+        <div class="muted">${r.recipientName ? r.recipientName + ", your" : "Your"} parcel is waiting at the destination shop</div>
+        <div style="margin:.6rem 0 .2rem">SHOW THIS CODE TO COLLECT</div>
+        <div class="code">${r.pickupCode}</div>
+      </div>`;
+    }
+
+    html += `<div class="card">` + STEPS.map((s, i) => {
+      const cls = i < idx ? "done" : i === idx ? (s[0] === "DELIVERED" ? "done delivered" : "done") : "";
+      return `<div class="step ${cls}"><span class="dot"></span><span class="label">${s[1]}</span>
+        ${i === idx && s[0] !== "DELIVERED" ? '<span class="pill" style="margin-left:auto">NOW</span>' : ""}</div>`;
+    }).join("") + `</div>`;
+
+    if (r.co2eAvoidedKg) {
+      html += `<div class="card eco">${Math.round(r.co2eAvoidedKg * 1000)}g CO₂e avoided — this parcel travelled van-free.</div>`;
+    }
+    document.getElementById("content").innerHTML = html;
+  }
+
+  load();
+</script>
+</body>
+</html>

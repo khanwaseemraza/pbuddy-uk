@@ -1,0 +1,69 @@
+rules_version = '2';
+
+// ADR 0003: clients never write custody state. All mutations go through
+// callable functions (Admin SDK bypasses these rules). Rules below are
+// therefore read-scoping only, plus a blanket write deny.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isParty(ship) {
+      return signedIn() &&
+        (ship.data.senderUid == request.auth.uid ||
+         ship.data.travellerUid == request.auth.uid);
+    }
+
+    match /shipments/{shipmentId} {
+      allow read: if isParty(resource);
+      allow write: if false;
+
+      match /events/{eventId} {
+        allow read: if isParty(get(/databases/$(database)/documents/shipments/$(shipmentId)));
+        allow write: if false;
+      }
+
+      // Hashed code records: no client access at all.
+      match /codes/{purpose} {
+        allow read, write: if false;
+      }
+
+      // v0.1 plaintext delivery docs — tightly scoped by named field.
+      match /private/travellerCodes {
+        allow read: if signedIn() && resource.data.travellerUid == request.auth.uid;
+        allow write: if false;
+      }
+      match /private/pickupCode {
+        allow read: if signedIn() && resource.data.senderUid == request.auth.uid;
+        allow write: if false;
+      }
+
+      match /scanFailures/{id} {
+        allow read, write: if false; // ops/fraud data, server only
+      }
+    }
+
+    match /corridors/{id} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Shop docs hold linkToken — never client-readable (shop page talks to
+    // callables only, ADR 0002).
+    match /shops/{id} {
+      allow read, write: if false;
+    }
+
+    match /admins/{id} {
+      allow read, write: if false;
+    }
+
+    // Own profile doc: FCM token registration (PushManager).
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

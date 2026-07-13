@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pbuddy ops</title>
+<style>
+  :root { font-family: -apple-system, system-ui, sans-serif; }
+  body { margin: 0; padding: 1.25rem; background: #F6F7F9; color: #1d1d1f; }
+  main { max-width: 60rem; margin: 0 auto; }
+  h1 { font-size: 1.2rem; } h2 { font-size: 1rem; margin: 1.4rem 0 .4rem; }
+  .card { background: #fff; border-radius: 12px; padding: 1rem; margin: .75rem 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+  th, td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid #e8eeea; white-space: nowrap; }
+  input, button, select { font-size: .9rem; padding: .45rem .6rem; border: 1px solid #c8d4cd; border-radius: 8px; }
+  button { background: #0E1B2C; color: #fff; border: 0; cursor: pointer; }
+  button.small { padding: .25rem .5rem; font-size: .75rem; }
+  .pill { padding: .1rem .5rem; border-radius: 99px; font-size: .72rem; font-weight: 600; }
+  .DELIVERED { background: #d9f2e4; color: #0a5c3c; } .CANCELLED { background: #fbe3e1; color: #b3261e; }
+  .CREATED,.DEPOSITED,.COLLECTED,.ARRIVED { background: #e5ecf9; color: #24509e; }
+  .stale { background: #fdeccc; color: #8a5a00; }
+  .muted { color: #6b7d73; font-size: .8rem; }
+  #signin { max-width: 22rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1><span style="color:#0E1B2C">ParcelBuddy</span> · ops</h1>
+
+  <div class="card" id="signin">
+    <div id="recaptcha"></div>
+    <label class="muted">Admin phone number</label><br>
+    <input id="phone" value="+44" style="width: 12rem"> <button id="sendCode">Send code</button><br><br>
+    <input id="smsCode" placeholder="123456" style="width: 8rem"> <button id="verify">Verify</button>
+    <div id="authMsg" class="muted"></div>
+  </div>
+
+  <div id="console" style="display:none">
+    <h2>Parcels <button class="small" onclick="refresh()">refresh</button></h2>
+    <div class="card"><table id="parcels"></table></div>
+
+    <h2>Verified travellers</h2>
+    <div class="card"><table id="travellers"></table></div>
+
+    <h2>Shops</h2>
+    <div class="card">
+      <table id="shops"></table>
+      <p>
+        <input id="newShopName" placeholder="Shop name">
+        <input id="newShopCorridor" value="lon-bhm" style="width: 7rem">
+        <button onclick="addShop()">Create shop</button>
+      </p>
+    </div>
+    <p class="muted">Assign: paste a traveller uid into a DEPOSITED parcel's box. Shop payouts: "payout link" opens Stripe onboarding to send to the shopkeeper.</p>
+  </div>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
+<script>
+firebase.initializeApp({
+  apiKey: "AIzaSyBXPnQ-a3TOlfQOquTXgrONGDGTaZ5CvOM",
+  authDomain: "pbuddy-uk.firebaseapp.com",
+  projectId: "pbuddy-uk",
+});
+const fns = firebase.app().functions("europe-west2");
+const $ = (id) => document.getElementById(id);
+let confirmation;
+
+const recaptcha = new firebase.auth.RecaptchaVerifier("recaptcha", { size: "invisible" });
+$("sendCode").onclick = async () => {
+  try {
+    confirmation = await firebase.auth().signInWithPhoneNumber($("phone").value.trim(), recaptcha);
+    $("authMsg").textContent = "Code sent.";
+  } catch (e) { $("authMsg").textContent = e.message; }
+};
+$("verify").onclick = async () => {
+  try { await confirmation.confirm($("smsCode").value.trim()); }
+  catch (e) { $("authMsg").textContent = e.message; }
+};
+
+firebase.auth().onAuthStateChanged((user) => {
+  if (user) { $("signin").style.display = "none"; $("console").style.display = "block"; refresh(); }
+});
+
+async function refresh() {
+  try {
+    const { data } = await fns.httpsCallable("opsOverview")();
+    $("parcels").innerHTML =
+      "<tr><th>id</th><th>state</th><th>paid</th><th>stale</th><th>traveller</th><th>payouts</th><th></th></tr>" +
+      data.parcels.map((p) => `<tr>
+        <td title="${p.id}">${p.id.slice(0, 6)}…</td>
+        <td><span class="pill ${p.state}">${p.state}</span></td>
+        <td>${p.paid ? "✅" : "—"}</td>
+        <td>${p.staleKind ? `<span class="pill stale">${p.staleKind}</span>` : ""}</td>
+        <td>${p.travellerUid ? p.travellerUid.slice(0, 8) + "…" : (p.state === "DEPOSITED"
+          ? `<input placeholder="traveller uid" style="width:9rem;font-size:.75rem" id="as-${p.id}">
+             <button class="small" onclick="assign('${p.id}')">assign</button>` : "—")}</td>
+        <td class="muted">${p.payouts ? Object.entries(p.payouts).map(([k, v]) => `${k.split(":")[0]}: ${String(v).startsWith("tr_") ? "✅" : v}`).join(" · ") : ""}</td>
+        <td class="muted">${p.itemCategory ?? ""}</td>
+      </tr>`).join("");
+    $("travellers").innerHTML =
+      "<tr><th>uid</th><th>payouts</th><th></th></tr>" +
+      data.travellers.map((t) => `<tr><td>${t.uid}</td><td>${t.hasPayouts ? "✅" : "not set up"}</td>
+        <td><button class="small" onclick="navigator.clipboard.writeText('${t.uid}')">copy uid</button></td></tr>`).join("");
+    $("shops").innerHTML =
+      "<tr><th>name</th><th>corridor</th><th>payouts</th><th>link</th><th></th></tr>" +
+      data.shops.map((s) => `<tr><td>${s.name}</td><td>${s.corridorId}</td><td>${s.hasPayouts ? "✅" : "—"}</td>
+        <td><button class="small" onclick="navigator.clipboard.writeText('${s.link}')">copy scan link</button></td>
+        <td><button class="small" onclick="shopPayout('${s.id}')">payout link</button></td></tr>`).join("");
+  } catch (e) { alert(e.message); }
+}
+
+async function assign(shipmentId) {
+  const travellerUid = $(`as-${shipmentId}`).value.trim();
+  if (!travellerUid) return;
+  try { await fns.httpsCallable("assignTraveller")({ shipmentId, travellerUid }); refresh(); }
+  catch (e) { alert(e.message); }
+}
+async function addShop() {
+  try {
+    const { data } = await fns.httpsCallable("createShop")({ name: $("newShopName").value.trim(), corridorId: $("newShopCorridor").value.trim() });
+    await navigator.clipboard.writeText(data.link);
+    alert("Shop created — scan link copied to clipboard.");
+    refresh();
+  } catch (e) { alert(e.message); }
+}
+async function shopPayout(shopId) {
+  try {
+    const { data } = await fns.httpsCallable("createShopOnboarding")({ shopId });
+    await navigator.clipboard.writeText(data.url);
+    alert("Stripe onboarding link copied — send it to the shopkeeper.");
+  } catch (e) { alert(e.message); }
+}
+</script>
+</body>
+</html>
