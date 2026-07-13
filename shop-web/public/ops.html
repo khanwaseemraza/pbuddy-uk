@@ -37,7 +37,21 @@
 
   <div id="console" style="display:none">
     <h2>Parcels <button class="small" onclick="refresh()">refresh</button></h2>
-    <div class="card"><table id="parcels"></table></div>
+    <div class="card">
+      <p>
+        <select id="fState" onchange="renderParcels()">
+          <option value="">all states</option>
+          <option>CREATED</option><option>DEPOSITED</option><option>COLLECTED</option>
+          <option>ARRIVED</option><option>DELIVERED</option><option>CANCELLED</option>
+        </select>
+        <select id="fPaid" onchange="renderParcels()">
+          <option value="">paid + unpaid</option><option value="1">paid only</option><option value="0">unpaid only</option>
+        </select>
+        <label><input type="checkbox" id="fStale" onchange="renderParcels()"> stale only</label>
+        <input id="fSearch" placeholder="id / category" oninput="renderParcels()" style="width:9rem">
+      </p>
+      <table id="parcels"></table>
+    </div>
 
     <h2>Verified travellers</h2>
     <div class="card"><table id="travellers"></table></div>
@@ -91,30 +105,49 @@ firebase.auth().onAuthStateChanged((user) => {
   if (user) { $("signin").style.display = "none"; $("console").style.display = "block"; refresh(); }
 });
 
+let allParcels = [];
+function renderParcels() {
+  const st = $("fState").value, paid = $("fPaid").value,
+        stale = $("fStale").checked, q = $("fSearch").value.trim().toLowerCase();
+  const rows = allParcels.filter((p) =>
+    (!st || p.state === st) &&
+    (paid === "" || p.paid === (paid === "1")) &&
+    (!stale || p.staleKind) &&
+    (!q || p.id.toLowerCase().includes(q) || (p.itemCategory ?? "").toLowerCase().includes(q)));
+  $("parcels").innerHTML =
+    "<tr><th>id</th><th>state</th><th>paid</th><th>stale</th><th>traveller</th><th>payouts</th><th></th><th>resolve</th></tr>" +
+    rows.map((p) => `<tr>
+      <td title="${p.id}">${p.id.slice(0, 6)}…</td>
+      <td><span class="pill ${p.state}">${p.state}</span></td>
+      <td>${p.paid ? "✅" : "—"}</td>
+      <td>${p.staleKind ? `<span class="pill stale">${p.staleKind}</span>` : ""}</td>
+      <td>${p.travellerUid ? p.travellerUid.slice(0, 8) + "…" : (p.state === "DEPOSITED"
+        ? `<input placeholder="traveller uid" style="width:9rem;font-size:.75rem" id="as-${p.id}">
+           <button class="small" onclick="assign('${p.id}')">assign</button>` : "—")}</td>
+      <td class="muted">${p.payouts ? Object.entries(p.payouts).map(([k, v]) => `${k.split(":")[0]}: ${String(v).startsWith("tr_") ? "✅" : v}`).join(" · ") : ""}</td>
+      <td class="muted">${p.itemCategory ?? ""}</td>
+      <td>${p.state === "DELIVERED"
+        ? `<button class="small" onclick="resolve('${p.id}','refund_only')">refund</button>`
+        : p.state === "CANCELLED" ? ""
+        : `<button class="small" onclick="resolve('${p.id}','cancel_refund')">cancel + refund</button>`}</td>
+    </tr>`).join("") +
+    (rows.length ? "" : `<tr><td colspan="8" class="muted">no parcels match the filters</td></tr>`);
+}
+
 async function refresh() {
   try {
     const { data } = await fns.httpsCallable("opsOverview")();
-    $("parcels").innerHTML =
-      "<tr><th>id</th><th>state</th><th>paid</th><th>stale</th><th>traveller</th><th>payouts</th><th></th></tr>" +
-      data.parcels.map((p) => `<tr>
-        <td title="${p.id}">${p.id.slice(0, 6)}…</td>
-        <td><span class="pill ${p.state}">${p.state}</span></td>
-        <td>${p.paid ? "✅" : "—"}</td>
-        <td>${p.staleKind ? `<span class="pill stale">${p.staleKind}</span>` : ""}</td>
-        <td>${p.travellerUid ? p.travellerUid.slice(0, 8) + "…" : (p.state === "DEPOSITED"
-          ? `<input placeholder="traveller uid" style="width:9rem;font-size:.75rem" id="as-${p.id}">
-             <button class="small" onclick="assign('${p.id}')">assign</button>` : "—")}</td>
-        <td class="muted">${p.payouts ? Object.entries(p.payouts).map(([k, v]) => `${k.split(":")[0]}: ${String(v).startsWith("tr_") ? "✅" : v}`).join(" · ") : ""}</td>
-        <td class="muted">${p.itemCategory ?? ""}</td>
-      </tr>`).join("");
+    allParcels = data.parcels;
+    renderParcels();
     $("travellers").innerHTML =
       "<tr><th>uid</th><th>payouts</th><th></th></tr>" +
       data.travellers.map((t) => `<tr><td>${t.uid}</td><td>${t.hasPayouts ? "✅" : "not set up"}</td>
         <td><button class="small" onclick="navigator.clipboard.writeText('${t.uid}')">copy uid</button></td></tr>`).join("");
     $("shops").innerHTML =
-      "<tr><th>name</th><th>corridor</th><th>payouts</th><th>link</th><th></th></tr>" +
+      "<tr><th>name</th><th>corridor</th><th>payouts</th><th>link</th><th></th><th></th></tr>" +
       data.shops.map((s) => `<tr><td>${s.name}</td><td>${s.corridorId}</td><td>${s.hasPayouts ? "✅" : "—"}</td>
         <td><button class="small" onclick="navigator.clipboard.writeText('${s.link}')">copy scan link</button></td>
+        <td><a class="small" style="text-decoration:none" href="counter-qr.html?${s.link.split('?')[1]}&name=${encodeURIComponent(s.name)}" target="_blank"><button class="small">counter card</button></a></td>
         <td><button class="small" onclick="shopPayout('${s.id}')">payout link</button></td></tr>`).join("");
   } catch (e) {
     if (e.code === "functions/permission-denied") {
@@ -122,6 +155,19 @@ async function refresh() {
       $("denied").style.display = "block";
     } else alert(e.message);
   }
+}
+
+async function resolve(shipmentId, action) {
+  const label = action === "refund_only"
+    ? "DISPUTE REFUND: full refund to sender, custody chain and DELIVERED state kept."
+    : "CANCEL + REFUND: parcel is cancelled and the sender fully refunded.";
+  const reason = prompt(`${label}\n\nReason (goes on the audit trail):`);
+  if (!reason) return;
+  try {
+    const { data } = await fns.httpsCallable("opsResolve")({ shipmentId, action, reason });
+    alert(data.refundId ? `Done — refund ${data.refundId}` : "Done — no payment to refund.");
+    refresh();
+  } catch (e) { alert(e.message); }
 }
 
 async function assign(shipmentId) {

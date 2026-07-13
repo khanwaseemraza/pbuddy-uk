@@ -787,6 +787,75 @@ export const createShopOnboarding = onCall(
 );
 
 // ---------------------------------------------------------------------------
+// opsResolve — dispute + refund actions (ops.html). Two admin overrides:
+//   cancel_refund: cancel a stuck/problem parcel (any non-terminal state)
+//                  and refund the sender in full — ops discretion, unlike
+//                  the sender's own canCancel() path.
+//   refund_only:   dispute refund on a DELIVERED parcel; custody chain and
+//                  state stay intact (append-only ledger untouched).
+// Every action is recorded on the shipment with who/why/when.
+// ---------------------------------------------------------------------------
+export const opsResolve = onCall(
+  { region: REGION, secrets: [STRIPE_SECRET_KEY] },
+  async (req) => {
+    const adminUid = await requireAdmin(req.auth);
+    const { shipmentId, action, reason } = req.data ?? {};
+    if (typeof shipmentId !== "string") throw new HttpsError("invalid-argument", "shipmentId required");
+    if (action !== "cancel_refund" && action !== "refund_only") {
+      throw new HttpsError("invalid-argument", "action must be cancel_refund or refund_only");
+    }
+    if (typeof reason !== "string" || reason.trim().length < 5) {
+      throw new HttpsError("invalid-argument", "a reason (min 5 chars) is required — it goes on the audit trail");
+    }
+
+    const shipmentRef = db.doc(`shipments/${shipmentId}`);
+    const info = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(shipmentRef);
+      if (!snap.exists) throw new HttpsError("not-found", "no such shipment");
+      const state = snap.get("state") as CustodyState | "CANCELLED";
+
+      if (action === "cancel_refund") {
+        if (state === "DELIVERED" || state === "CANCELLED") {
+          throw new HttpsError("failed-precondition", `cannot cancel a ${state} parcel — use refund_only for disputes`);
+        }
+        tx.update(shipmentRef, { state: "CANCELLED", cancelledAt: FieldValue.serverTimestamp(), refund: "ops_full" });
+      } else if (state !== "DELIVERED") {
+        throw new HttpsError("failed-precondition", "refund_only is for DELIVERED parcels; use cancel_refund otherwise");
+      }
+      if (snap.get("opsRefundId")) throw new HttpsError("failed-precondition", "already refunded by ops");
+
+      return {
+        paid: snap.get("paid") === true,
+        sessionId: snap.get("paymentSessionId") as string | undefined,
+        amountPaid: snap.get("amountPaid") as number | undefined,
+      };
+    });
+
+    // Full refund outside the transaction (external call), as cancelShipment does.
+    let refundId: string | undefined;
+    if (info.paid && info.sessionId && (info.amountPaid ?? 0) > 0) {
+      const key = STRIPE_SECRET_KEY.value();
+      const session = await stripe(key, "GET", `checkout/sessions/${info.sessionId}`);
+      if (typeof session.payment_intent === "string") {
+        const refund = await stripe(key, "POST", "refunds", {
+          payment_intent: session.payment_intent,
+          amount: String(info.amountPaid),
+        });
+        refundId = refund.id as string;
+      }
+    }
+    await shipmentRef.update({
+      ...(refundId ? { opsRefundId: refundId, refundedPence: info.amountPaid } : {}),
+      opsActions: FieldValue.arrayUnion({
+        action, reason: reason.trim(), by: adminUid, at: Timestamp.now(),
+        ...(refundId ? { refundId } : { refund: "none (unpaid or no session)" }),
+      }),
+    });
+    return { ok: true, refundId: refundId ?? null };
+  }
+);
+
+// ---------------------------------------------------------------------------
 // staleSweep — hourly: flag stuck shipments per lifecycle.staleness().
 // Ops (manual v0.1) works the flagged list: re-match, return-leg, refunds.
 // ---------------------------------------------------------------------------

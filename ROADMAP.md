@@ -48,8 +48,9 @@ the pilot has produced `[measured]` numbers in BUSINESS.md.
       dark-mode audit (hardcoded ink/paper tokens need adaptive variants)
 - [~] Shop side v2: daily reconciliation LIVE (2026-07-12: "Today at your
       shop" — scans, parcels handled, ~£ earned, refreshes per scan).
-      Remaining: shop onboarding flow + printable counter QR (with ops
-      dashboard, Phase 4)
+      2026-07-13: printable counter card LIVE (counter-qr.html — shop QR +
+      staff steps, print-ready, "counter card" button per shop in ops).
+      Remaining: shop onboarding flow
 - [x] TestFlight (2026-07-13): App Store Connect record "Pbuddy"
       (ParcelBuddy was name-squatted — trademark check now a real F-task);
       Release archive uploaded, distribution signing automated. Testers
@@ -59,8 +60,11 @@ the pilot has produced `[measured]` numbers in BUSINESS.md.
 - [~] Ops dashboard LIVE at /ops.html (2026-07-12): parcel board with state/
       paid/stale pills, traveller assignment, verified-traveller roster,
       shop creation with scan links, shop Stripe payout onboarding links.
-      Phone-auth gated (adminPhones/ collection). Remaining: dispute +
-      refund actions, richer filters
+      Phone-auth gated (adminPhones/ collection). 2026-07-13: dispute + refund
+      actions (opsResolve — cancel+refund any non-terminal parcel, dispute-
+      refund a DELIVERED one; reason required, audit-trailed on the
+      shipment), state/paid/stale/search filters, friendly no-access state,
+      setup-ops.mjs seeding script. Remaining: deploy + verify on production
 - [ ] Automated corridor+date matching (simple beats manual; ML is post-visa)
 - [~] Firestore PITR + delete protection ENABLED (2026-07-12).
       Remaining: error alerting policy on function failures

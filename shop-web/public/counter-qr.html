@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ParcelBuddy — counter card</title>
+<style>
+  :root { font-family: -apple-system, system-ui, sans-serif; }
+  body { margin: 0; background: #F6F7F9; color: #1d1d1f; }
+  .page { max-width: 28rem; margin: 2rem auto; padding: 0 1rem; }
+  .card { background: #fff; border-radius: 16px; box-shadow: 0 2px 8px rgba(0,0,0,.1);
+          padding: 2rem; text-align: center; }
+  .brand { color: #0E1B2C; font-weight: 800; font-size: 1.5rem; letter-spacing: -.02em; }
+  .brand .chev { color: #E85D26; }
+  h1 { font-size: 1.1rem; margin: .75rem 0 0; }
+  #qr { margin: 1.5rem auto; width: 220px; height: 220px; }
+  #qr canvas, #qr img { width: 220px !important; height: 220px !important; }
+  .shopname { font-size: 1.15rem; font-weight: 700; margin-top: .5rem; }
+  .muted { color: #6b7d73; font-size: .85rem; }
+  .steps { text-align: left; font-size: .9rem; margin: 1.25rem 0 0; padding-left: 1.2rem; }
+  .steps li { margin: .3rem 0; }
+  .printbtn { margin: 1.5rem auto; display: block; font-size: 1rem; padding: .6rem 1.4rem;
+              background: #0E1B2C; color: #fff; border: 0; border-radius: 10px; cursor: pointer; }
+  .err { color: #b3261e; padding: 2rem; text-align: center; }
+  @media print {
+    body { background: #fff; }
+    .printbtn, .noprint { display: none !important; }
+    .card { box-shadow: none; border-radius: 0; }
+    .page { margin: 0 auto; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="card" id="content" style="display:none">
+    <div class="brand">Parcel<span>Buddy</span> <span class="chev">»</span></div>
+    <h1>Parcel drop-off &amp; collection point</h1>
+    <div id="qr"></div>
+    <div class="shopname" id="shopName"></div>
+    <p class="muted">Staff: scan this with the counter phone to open your ParcelBuddy scan page.</p>
+    <ol class="steps">
+      <li>Customer shows their 6-digit code or QR.</li>
+      <li>Open the scan page (QR above), enter the code.</li>
+      <li>Photograph the <strong>parcel</strong> (never the person).</li>
+      <li>Confirm handoff — done.</li>
+    </ol>
+  </div>
+  <div class="err" id="err" style="display:none">
+    Missing shop link. Open this page from the ops dashboard ("counter card"),
+    so the URL carries <code>?shop=…&amp;token=…</code>.
+  </div>
+  <button class="printbtn" onclick="window.print()">🖨 Print this card</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script>
+  const params = new URLSearchParams(location.search);
+  const shop = params.get("shop"), token = params.get("token");
+  if (!shop || !token) {
+    document.getElementById("err").style.display = "block";
+  } else {
+    document.getElementById("content").style.display = "block";
+    const scanUrl = `https://pbuddy-uk.web.app/?shop=${encodeURIComponent(shop)}&token=${encodeURIComponent(token)}`;
+    new QRCode(document.getElementById("qr"), { text: scanUrl, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+    document.getElementById("shopName").textContent = params.get("name") ?? "";
+    document.title = `ParcelBuddy counter card — ${params.get("name") ?? shop}`;
+  }
+</script>
+</body>
+</html>
