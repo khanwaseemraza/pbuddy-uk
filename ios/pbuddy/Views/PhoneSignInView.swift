@@ -109,13 +109,60 @@ struct PhoneSignInView: View {
 
     private func sendCode() async {
         busy = true; error = nil; defer { busy = false }
+        let number = phone.replacingOccurrences(of: " ", with: "")
+        // Validate before hitting Firebase — the backend's raw errors
+        // ("TOO_SHORT", "Invalid format") are not for human eyes.
+        if let validationError = Self.validate(number) {
+            self.error = validationError
+            return
+        }
+        await requestCode(number)
+    }
+
+    private func requestCode(_ number: String) async {
         // Real SMS via APNs silent push (key uploaded 2026-07-12).
         // Regions allowlisted server-side: UK + Pakistan.
         do {
             verificationID = try await PhoneAuthProvider.provider()
-                .verifyPhoneNumber(phone.replacingOccurrences(of: " ", with: ""), uiDelegate: nil)
+                .verifyPhoneNumber(number, uiDelegate: nil)
         } catch {
-            self.error = error.localizedDescription
+            self.error = Self.friendlyAuthMessage(error)
+        }
+    }
+
+    /// Client-side sanity check. Returns a user-facing message, or nil if OK.
+    static func validate(_ number: String) -> String? {
+        guard number.hasPrefix("+") else {
+            return "Please include the country code, e.g. +44 for UK or +92 for Pakistan."
+        }
+        let digits = number.dropFirst().filter(\.isNumber)
+        guard digits.count == number.dropFirst().count else {
+            return "That number contains invalid characters — digits only, please."
+        }
+        // UK mobiles: +44 + 10 digits; PK mobiles: +92 + 10 digits.
+        guard digits.count >= 11 else {
+            return "That number looks too short — a full mobile number is needed, e.g. +44 7911 123456."
+        }
+        guard digits.count <= 14 else {
+            return "That number looks too long — please check and try again."
+        }
+        return nil
+    }
+
+    /// Map Firebase Auth errors to messages a person can act on.
+    static func friendlyAuthMessage(_ error: Error) -> String {
+        let code = AuthErrorCode(rawValue: (error as NSError).code)
+        switch code {
+        case .invalidPhoneNumber, .missingPhoneNumber:
+            return "That doesn't look like a valid mobile number — please check and try again, e.g. +44 7911 123456."
+        case .tooManyRequests:
+            return "Too many attempts — please wait a few minutes and try again."
+        case .quotaExceeded:
+            return "We can't send more codes right now. Please try again shortly."
+        case .networkError:
+            return "No connection — check your internet and try again."
+        default:
+            return "Something went wrong sending your code. Please try again."
         }
     }
 
@@ -128,7 +175,15 @@ struct PhoneSignInView: View {
             _ = try await Auth.auth().signIn(with: credential)
             // AuthModel's state listener flips the UI.
         } catch {
-            self.error = error.localizedDescription
+            let code = AuthErrorCode(rawValue: (error as NSError).code)
+            switch code {
+            case .invalidVerificationCode:
+                self.error = "That code isn't right — please check the SMS and try again."
+            case .sessionExpired:
+                self.error = "That code has expired — tap \"Use a different number\" to get a new one."
+            default:
+                self.error = Self.friendlyAuthMessage(error)
+            }
         }
     }
 }
