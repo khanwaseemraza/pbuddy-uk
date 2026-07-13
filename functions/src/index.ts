@@ -708,10 +708,11 @@ export const getShopActivity = onCall({ region: REGION }, async (req) => {
 export const opsOverview = onCall({ region: REGION }, async (req) => {
   await requireAdmin(req.auth);
 
-  const [parcels, travellers, shops] = await Promise.all([
+  const [parcels, travellers, shops, applications] = await Promise.all([
     db.collection("shipments").orderBy("createdAt", "desc").limit(50).get(),
     db.collection("users").where("identityVerified", "==", true).limit(50).get(),
     db.collection("shops").get(),
+    db.collection("shopApplications").where("status", "==", "pending").limit(50).get(),
   ]);
 
   return {
@@ -735,6 +736,14 @@ export const opsOverview = onCall({ region: REGION }, async (req) => {
       corridorId: d.get("corridorId"),
       link: `https://pbuddy-uk.web.app/?shop=${d.id}&token=${d.get("linkToken")}`,
       hasPayouts: Boolean(d.get("stripeAccountId")),
+    })),
+    applications: applications.docs.map((d) => ({
+      id: d.id,
+      name: d.get("name"),
+      contactName: d.get("contactName"),
+      phone: d.get("phone"),
+      address: d.get("address"),
+      corridorId: d.get("corridorId"),
     })),
   };
 });
@@ -785,6 +794,64 @@ export const createShopOnboarding = onCall(
     return { url: link.url as string };
   }
 );
+
+// ---------------------------------------------------------------------------
+// Shop self-onboarding: shopkeeper applies from a public page; ops approves
+// and the shop + scan link are created automatically. Replaces manual shop
+// creation as the pipeline (F7: shop pipeline, intent-to-partner).
+// ---------------------------------------------------------------------------
+export const applyShop = onCall({ region: REGION }, async (req) => {
+  const { name, contactName, phone, address, corridorId } = req.data ?? {};
+  for (const [k, v] of Object.entries({ name, contactName, phone, address, corridorId })) {
+    if (typeof v !== "string" || !v.trim()) throw new HttpsError("invalid-argument", `${k} required`);
+    if ((v as string).length > 200) throw new HttpsError("invalid-argument", `${k} too long`);
+  }
+  if (!/^\+[1-9]\d{7,14}$/.test((phone as string).replace(/\s/g, ""))) {
+    throw new HttpsError("invalid-argument", "phone must be international format, e.g. +44 7911 123456");
+  }
+  if (!(await db.doc(`corridors/${corridorId}`).get()).exists) {
+    throw new HttpsError("invalid-argument", "unknown corridor");
+  }
+  // One open application per phone (idempotent resubmit, spam brake).
+  const phoneKey = (phone as string).replace(/\s/g, "");
+  const dup = await db.collection("shopApplications")
+    .where("phoneKey", "==", phoneKey).where("status", "==", "pending").limit(1).get();
+  if (!dup.empty) return { ok: true, note: "already applied — we'll be in touch" };
+
+  await db.collection("shopApplications").add({
+    name: (name as string).trim(), contactName: (contactName as string).trim(),
+    phone: (phone as string).trim(), phoneKey, address: (address as string).trim(),
+    corridorId, status: "pending", createdAt: FieldValue.serverTimestamp(),
+  });
+  return { ok: true };
+});
+
+export const decideShopApplication = onCall({ region: REGION }, async (req) => {
+  const adminUid = await requireAdmin(req.auth);
+  const { applicationId, approve } = req.data ?? {};
+  if (typeof applicationId !== "string" || typeof approve !== "boolean") {
+    throw new HttpsError("invalid-argument", "applicationId and approve required");
+  }
+  const appRef = db.doc(`shopApplications/${applicationId}`);
+  const snap = await appRef.get();
+  if (!snap.exists) throw new HttpsError("not-found", "no such application");
+  if (snap.get("status") !== "pending") throw new HttpsError("failed-precondition", "already decided");
+
+  if (!approve) {
+    await appRef.update({ status: "rejected", decidedBy: adminUid, decidedAt: FieldValue.serverTimestamp() });
+    return { ok: true };
+  }
+  const linkToken = randomBytes(12).toString("hex");
+  const shopRef = db.collection("shops").doc();
+  await shopRef.set({
+    name: snap.get("name"), corridorId: snap.get("corridorId"), linkToken,
+    contactName: snap.get("contactName"), contactPhone: snap.get("phone"),
+    address: snap.get("address"), applicationId,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  await appRef.update({ status: "approved", shopId: shopRef.id, decidedBy: adminUid, decidedAt: FieldValue.serverTimestamp() });
+  return { ok: true, shopId: shopRef.id, link: `https://pbuddy-uk.web.app/?shop=${shopRef.id}&token=${linkToken}` };
+});
 
 // ---------------------------------------------------------------------------
 // opsResolve — dispute + refund actions (ops.html). Two admin overrides:

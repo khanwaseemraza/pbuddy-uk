@@ -50,7 +50,11 @@ the pilot has produced `[measured]` numbers in BUSINESS.md.
       shop" — scans, parcels handled, ~£ earned, refreshes per scan).
       2026-07-13: printable counter card LIVE (counter-qr.html — shop QR +
       staff steps, print-ready, "counter card" button per shop in ops).
-      Remaining: shop onboarding flow
+      2026-07-13: shop self-onboarding LIVE — public application form
+      (shop-apply.html: name/contact/phone/address/corridor, validated,
+      one pending application per phone), pending-applications queue in
+      ops with approve (auto-creates shop + scan link, copied for texting
+      to the shopkeeper) / reject. Remaining: deploy + verify on production
 - [x] TestFlight (2026-07-13): App Store Connect record "Pbuddy"
       (ParcelBuddy was name-squatted — trademark check now a real F-task);
       Release archive uploaded, distribution signing automated. Testers

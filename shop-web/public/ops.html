@@ -56,6 +56,11 @@
     <h2>Verified travellers</h2>
     <div class="card"><table id="travellers"></table></div>
 
+    <h2>Shop applications <span id="appCount" class="pill stale" style="display:none"></span></h2>
+    <div class="card"><table id="applications"></table>
+      <p class="muted">Shopkeepers apply at <a href="shop-apply.html" target="_blank">/shop-apply.html</a> — share that link in outreach. Approve creates the shop + scan link automatically.</p>
+    </div>
+
     <h2>Shops</h2>
     <div class="card">
       <table id="shops"></table>
@@ -143,6 +148,18 @@ async function refresh() {
       "<tr><th>uid</th><th>payouts</th><th></th></tr>" +
       data.travellers.map((t) => `<tr><td>${t.uid}</td><td>${t.hasPayouts ? "✅" : "not set up"}</td>
         <td><button class="small" onclick="navigator.clipboard.writeText('${t.uid}')">copy uid</button></td></tr>`).join("");
+    const apps = data.applications ?? [];
+    $("appCount").style.display = apps.length ? "inline" : "none";
+    $("appCount").textContent = apps.length;
+    $("applications").innerHTML = apps.length
+      ? "<tr><th>shop</th><th>contact</th><th>phone</th><th>address</th><th>corridor</th><th></th></tr>" +
+        apps.map((a) => `<tr>
+          <td>${a.name}</td><td>${a.contactName}</td><td>${a.phone}</td>
+          <td class="muted">${a.address}</td><td>${a.corridorId}</td>
+          <td><button class="small" onclick="decideApp('${a.id}', true)">approve</button>
+              <button class="small" style="background:#b3261e" onclick="decideApp('${a.id}', false)">reject</button></td>
+        </tr>`).join("")
+      : `<tr><td class="muted">no pending applications</td></tr>`;
     $("shops").innerHTML =
       "<tr><th>name</th><th>corridor</th><th>payouts</th><th>link</th><th></th><th></th></tr>" +
       data.shops.map((s) => `<tr><td>${s.name}</td><td>${s.corridorId}</td><td>${s.hasPayouts ? "✅" : "—"}</td>
@@ -155,6 +172,18 @@ async function refresh() {
       $("denied").style.display = "block";
     } else alert(e.message);
   }
+}
+
+async function decideApp(applicationId, approve) {
+  if (!approve && !confirm("Reject this application?")) return;
+  try {
+    const { data } = await fns.httpsCallable("decideShopApplication")({ applicationId, approve });
+    if (approve && data.link) {
+      await navigator.clipboard.writeText(data.link);
+      alert("Approved — shop created, scan link copied to clipboard. Text it to the shopkeeper.");
+    }
+    refresh();
+  } catch (e) { alert(e.message); }
 }
 
 async function resolve(shipmentId, action) {
