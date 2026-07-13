@@ -53,6 +53,13 @@
     </div>
     <p class="muted">Assign: paste a traveller uid into a DEPOSITED parcel's box. Shop payouts: "payout link" opens Stripe onboarding to send to the shopkeeper.</p>
   </div>
+
+  <div id="denied" class="card" style="display:none">
+    <strong>No ops access for this account.</strong>
+    <p class="muted">You're signed in, but this phone number isn't on the admin list.
+    Ask an existing admin to add your exact number (E.164, e.g. <code>+923001234567</code>)
+    as a document ID in the <code>adminPhones</code> collection, then reload.</p>
+  </div>
 </main>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -109,7 +116,12 @@ async function refresh() {
       data.shops.map((s) => `<tr><td>${s.name}</td><td>${s.corridorId}</td><td>${s.hasPayouts ? "✅" : "—"}</td>
         <td><button class="small" onclick="navigator.clipboard.writeText('${s.link}')">copy scan link</button></td>
         <td><button class="small" onclick="shopPayout('${s.id}')">payout link</button></td></tr>`).join("");
-  } catch (e) { alert(e.message); }
+  } catch (e) {
+    if (e.code === "functions/permission-denied") {
+      $("console").style.display = "none";
+      $("denied").style.display = "block";
+    } else alert(e.message);
+  }
 }
 
 async function assign(shipmentId) {
